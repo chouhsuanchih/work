@@ -6,31 +6,29 @@ import urllib.error
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-UID_BILIBILI = "3546611678448071"
-FEED_URLS = [
-    f"https://rsshub.liumingye.cn/bilibili/user/dynamic/{UID_BILIBILI}",
-    f"https://rsshub.chyi.org/bilibili/user/dynamic/{UID_BILIBILI}",
-    f"https://rsshub.runnable.run/bilibili/user/dynamic/{UID_BILIBILI}",
-]
+CONFIG_FILE = Path("bilibili-monitor/config.json")
 STATE_FILE = Path("bilibili-monitor/state.json")
+FEED_TEMPLATES = [
+    "https://rsshub.liumingye.cn/bilibili/user/dynamic/{uid}",
+    "https://rsshub.chyi.org/bilibili/user/dynamic/{uid}",
+    "https://rsshub.runnable.run/bilibili/user/dynamic/{uid}",
+]
 SPT = os.environ.get("WXPUSHER_SPT", "").strip()
 APP_TOKEN = os.environ.get("WXPUSHER_APP_TOKEN", "").strip()
 WX_UID = os.environ.get("WXPUSHER_UID", "").strip()
 
 def fetch(url):
-    req = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": "Mozilla/5.0 (compatible; bilibili-monitor/1.0)",
-            "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
-        },
-    )
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "Mozilla/5.0 (compatible; bilibili-monitor/1.0)",
+        "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
+    })
     with urllib.request.urlopen(req, timeout=30) as r:
         return r.read()
 
-def fetch_feed():
+def fetch_feed(user):
     errors = []
-    for url in FEED_URLS:
+    for template in FEED_TEMPLATES:
+        url = template.format(uid=user["uid"])
         try:
             data = fetch(url)
             items = parse_feed(data)
@@ -41,7 +39,7 @@ def fetch_feed():
         except Exception as e:
             errors.append(f"{url}: {type(e).__name__}: {e}")
             print(f"RSS 源失败: {url} -> {e}")
-    raise RuntimeError("所有 RSSHub 备用源均失败：\n" + "\n".join(errors))
+    raise RuntimeError(f"UP主 {user['name']} ({user['uid']}) 的所有 RSSHub 备用源均失败：\n" + "\n".join(errors))
 
 def text_of(el, name):
     for child in el.iter():
@@ -53,8 +51,7 @@ def parse_feed(data):
     root = ET.fromstring(data)
     items = []
     for el in root.iter():
-        tag = el.tag.split("}")[-1]
-        if tag not in ("item", "entry"):
+        if el.tag.split("}")[-1] not in ("item", "entry"):
             continue
         title = text_of(el, "title")
         link = ""
@@ -71,59 +68,51 @@ def parse_feed(data):
 
 def send_wxpusher(content):
     if SPT:
-        url = (
-            "https://wxpusher.zjiecode.com/api/send/message/"
-            + urllib.parse.quote(SPT, safe="")
-            + "/"
-            + urllib.parse.quote(content, safe="")
-        )
+        url = "https://wxpusher.zjiecode.com/api/send/message/" + urllib.parse.quote(SPT, safe="") + "/" + urllib.parse.quote(content, safe="")
         with urllib.request.urlopen(urllib.request.Request(url), timeout=30) as r:
             return json.loads(r.read())
     if APP_TOKEN and WX_UID:
-        payload = json.dumps({
-            "appToken": APP_TOKEN,
-            "content": content,
-            "contentType": 1,
-            "uids": [WX_UID],
-        }).encode()
-        req = urllib.request.Request(
-            "https://wxpusher.zjiecode.com/api/send/message",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-        )
+        payload = json.dumps({"appToken": APP_TOKEN, "content": content, "contentType": 1, "uids": [WX_UID]}).encode()
+        req = urllib.request.Request("https://wxpusher.zjiecode.com/api/send/message", data=payload, headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=30) as r:
             return json.loads(r.read())
     raise RuntimeError("未配置 WXPUSHER_SPT，或 WXPUSHER_APP_TOKEN + WXPUSHER_UID")
 
 def main():
-    items = fetch_feed()
-    state = {"seen": []}
+    config = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+    users = config["users"]
+    state = {"seen": {}}
     if STATE_FILE.exists():
         state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
-    seen = set(state.get("seen", []))
-    new_items = [x for x in items if x["id"] not in seen]
 
-    # First run establishes a baseline and does not push historical updates.
-    if not seen:
-        state["seen"] = [x["id"] for x in items[:30]]
-        STATE_FILE.write_text(
-            json.dumps(state, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        print(f"首次运行：建立基线，当前 {len(items)} 条，不推送历史消息")
-        return
+    # Migrate the original single-UP state to the first configured UP.
+    if isinstance(state.get("seen"), list):
+        first_uid = users[0]["uid"]
+        state = {"seen": {first_uid: state["seen"]}}
 
-    for item in reversed(new_items):
-        content = f"🔔 B站 UP主有新动态\n\n{item['title']}\n\n{item['link']}"
-        print("推送:", item["title"])
-        print(send_wxpusher(content))
+    seen_by_uid = state.setdefault("seen", {})
 
-    merged = [x["id"] for x in items] + list(seen)
-    state["seen"] = list(dict.fromkeys(merged))[:50]
-    STATE_FILE.write_text(
-        json.dumps(state, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    for user in users:
+        uid = user["uid"]
+        items = fetch_feed(user)
+        seen = set(seen_by_uid.get(uid, []))
+        new_items = [x for x in items if x["id"] not in seen]
+
+        # New UPs establish their own baseline without sending historical updates.
+        if uid not in seen_by_uid:
+            seen_by_uid[uid] = [x["id"] for x in items[:30]]
+            print(f"首次监控 {user['name']} ({uid})：建立基线，当前 {len(items)} 条，不推送历史消息")
+            continue
+
+        for item in reversed(new_items):
+            content = f"🔔 B站 UP主有新动态\n\nUP主：{user['name']}\n标题：{item['title']}\n\n{item['link']}"
+            print("推送:", user["name"], item["title"])
+            print(send_wxpusher(content))
+
+        merged = [x["id"] for x in items] + list(seen)
+        seen_by_uid[uid] = list(dict.fromkeys(merged))[:50]
+
+    STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
 
 if __name__ == "__main__":
     main()
