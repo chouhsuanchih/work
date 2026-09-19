@@ -85,20 +85,25 @@ def main():
     if STATE_FILE.exists():
         state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
 
-    # Migrate the original single-UP state to the first configured UP.
     if isinstance(state.get("seen"), list):
         first_uid = users[0]["uid"]
         state = {"seen": {first_uid: state["seen"]}}
 
     seen_by_uid = state.setdefault("seen", {})
+    had_error = False
 
     for user in users:
         uid = user["uid"]
-        items = fetch_feed(user)
+        try:
+            items = fetch_feed(user)
+        except Exception as e:
+            had_error = True
+            print(f"⚠️ 跳过 UP主 {user['name']} ({uid})，不影响其他 UP 主：{e}")
+            continue
+
         seen = set(seen_by_uid.get(uid, []))
         new_items = [x for x in items if x["id"] not in seen]
 
-        # New UPs establish their own baseline without sending historical updates.
         if uid not in seen_by_uid:
             seen_by_uid[uid] = [x["id"] for x in items[:30]]
             print(f"首次监控 {user['name']} ({uid})：建立基线，当前 {len(items)} 条，不推送历史消息")
@@ -107,12 +112,20 @@ def main():
         for item in reversed(new_items):
             content = f"🔔 B站 UP主有新动态\n\nUP主：{user['name']}\n标题：{item['title']}\n\n{item['link']}"
             print("推送:", user["name"], item["title"])
-            print(send_wxpusher(content))
+            try:
+                print(send_wxpusher(content))
+            except Exception as e:
+                had_error = True
+                print(f"⚠️ 推送失败：{user['name']} -> {type(e).__name__}: {e}")
 
         merged = [x["id"] for x in items] + list(seen)
         seen_by_uid[uid] = list(dict.fromkeys(merged))[:50]
 
     STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # Do not fail the whole workflow just because one UP or one push failed.
+    if had_error:
+        print("本次检查存在部分错误，但已完成其他可用 UP 主的检查。")
 
 if __name__ == "__main__":
     main()
