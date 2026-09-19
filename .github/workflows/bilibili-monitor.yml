@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       test_push:
-        description: "发送一条微信测试消息"
+        description: "发送一条微信测试消息（勾选后仅发送测试，不检查B站）"
         required: false
         default: false
         type: boolean
@@ -21,14 +21,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check Bilibili
+      - name: Send WxPusher test
+        if: ${{ inputs.test_push == true }}
         env:
           WXPUSHER_SPT: ${{ secrets.WXPUSHER_SPT }}
-          WXPUSHER_APP_TOKEN: ${{ secrets.WXPUSHER_APP_TOKEN }}
-          WXPUSHER_UID: ${{ secrets.WXPUSHER_UID }}
         run: |
-          if [ "${{ github.event.inputs.test_push }}" = "true" ]; then
-            python3 - <<'PY'
+          python3 - <<'PY'
           import os, json, urllib.request
           content = "🔔 B站 UP主监控测试消息\n\n如果你能看到这条消息，说明 GitHub Actions → WxPusher → 微信 的推送链路正常。"
           payload = json.dumps({
@@ -49,11 +47,17 @@ jobs:
           if not result.get("success", False):
               raise RuntimeError(result)
           PY
-          else
-            python3 bilibili-monitor/monitor.py
-          fi
+
+      - name: Check Bilibili
+        if: ${{ inputs.test_push != true }}
+        env:
+          WXPUSHER_SPT: ${{ secrets.WXPUSHER_SPT }}
+          WXPUSHER_APP_TOKEN: ${{ secrets.WXPUSHER_APP_TOKEN }}
+          WXPUSHER_UID: ${{ secrets.WXPUSHER_UID }}
+        run: python3 bilibili-monitor/monitor.py
 
       - name: Save state
+        if: ${{ inputs.test_push != true }}
         run: |
           if git diff --quiet -- bilibili-monitor/state.json; then
             echo "state unchanged"
