@@ -68,9 +68,23 @@ def parse_feed(data):
 
 def send_wxpusher(content):
     if SPT:
-        url = "https://wxpusher.zjiecode.com/api/send/message/" + urllib.parse.quote(SPT, safe="") + "/" + urllib.parse.quote(content, safe="")
-        with urllib.request.urlopen(urllib.request.Request(url), timeout=30) as r:
-            return json.loads(r.read())
+        payload = json.dumps({
+            "content": content,
+            "summary": "B站 UP主新动态",
+            "contentType": 1,
+            "spt": SPT,
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            "https://wxpusher.zjiecode.com/api/send/message/simple-push",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=30) as r:
+            result = json.loads(r.read())
+            if not result.get("success", False):
+                raise RuntimeError(f"WxPusher 返回失败: {result}")
+            return result
     if APP_TOKEN and WX_UID:
         payload = json.dumps({"appToken": APP_TOKEN, "content": content, "contentType": 1, "uids": [WX_UID]}).encode()
         req = urllib.request.Request("https://wxpusher.zjiecode.com/api/send/message", data=payload, headers={"Content-Type": "application/json"})
@@ -109,16 +123,19 @@ def main():
             print(f"首次监控 {user['name']} ({uid})：建立基线，当前 {len(items)} 条，不推送历史消息")
             continue
 
+        successfully_handled = set()
         for item in reversed(new_items):
             content = f"🔔 B站 UP主有新动态\n\nUP主：{user['name']}\n标题：{item['title']}\n\n{item['link']}"
             print("推送:", user["name"], item["title"])
             try:
-                print(send_wxpusher(content))
+                result = send_wxpusher(content)
+                print(result)
+                successfully_handled.add(item["id"])
             except Exception as e:
                 had_error = True
                 print(f"⚠️ 推送失败：{user['name']} -> {type(e).__name__}: {e}")
 
-        merged = [x["id"] for x in items] + list(seen)
+        merged = [x["id"] for x in items if x["id"] in seen or x["id"] in successfully_handled] + list(seen)
         seen_by_uid[uid] = list(dict.fromkeys(merged))[:50]
 
     STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
