@@ -1,20 +1,5 @@
 {
   "seen": {
-    "3546611678448071": [
-      "https://t.bilibili.com/1249598461114843156",
-      "https://t.bilibili.com/1249374792063123457",
-      "https://t.bilibili.com/1248272939718017027",
-      "https://t.bilibili.com/1245841193631219768",
-      "https://t.bilibili.com/1244061956224057361",
-      "https://t.bilibili.com/1243399135396102178",
-      "https://t.bilibili.com/1240817022527340581",
-      "https://t.bilibili.com/1240485717339013127",
-      "https://t.bilibili.com/1238213121301020688",
-      "https://t.bilibili.com/1237855350526312480",
-      "https://t.bilibili.com/1236806725666865159",
-      "https://t.bilibili.com/1234938328963350553",
-      "https://t.bilibili.com/1233394653301047331"
-    ],
     "946974": [
       "https://t.bilibili.com/1248980054541598771",
       "https://t.bilibili.com/1248639867377680384",
@@ -28,6 +13,20 @@
       "https://t.bilibili.com/1245950281494036484",
       "https://t.bilibili.com/1245903049796354089",
       "https://t.bilibili.com/1245531968920092788"
+    ],
+    "3546611678448071": [
+      "https://t.bilibili.com/1249374792063123457",
+      "https://t.bilibili.com/1248272939718017027",
+      "https://t.bilibili.com/1245841193631219768",
+      "https://t.bilibili.com/1244061956224057361",
+      "https://t.bilibili.com/1243399135396102178",
+      "https://t.bilibili.com/1240817022527340581",
+      "https://t.bilibili.com/1240485717339013127",
+      "https://t.bilibili.com/1238213121301020688",
+      "https://t.bilibili.com/1237855350526312480",
+      "https://t.bilibili.com/1236806725666865159",
+      "https://t.bilibili.com/1234938328963350553",
+      "https://t.bilibili.com/1233394653301047331"
     ]
   }
 }
