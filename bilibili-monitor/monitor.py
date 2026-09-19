@@ -1,9 +1,7 @@
 import json
 import os
 import urllib.request
-import urllib.parse
 import urllib.error
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 CONFIG_FILE = Path("bilibili-monitor/config.json")
@@ -66,11 +64,11 @@ def parse_feed(data):
             items.append({"id": guid, "title": title or "B站动态更新", "link": link, "date": pub})
     return items
 
-def send_wxpusher(content):
+def send_wxpusher(content, summary="B站 UP主新动态"):
     if SPT:
         payload = json.dumps({
             "content": content,
-            "summary": "B站 UP主新动态",
+            "summary": summary,
             "contentType": 1,
             "spt": SPT,
         }).encode("utf-8")
@@ -86,10 +84,22 @@ def send_wxpusher(content):
                 raise RuntimeError(f"WxPusher 返回失败: {result}")
             return result
     if APP_TOKEN and WX_UID:
-        payload = json.dumps({"appToken": APP_TOKEN, "content": content, "contentType": 1, "uids": [WX_UID]}).encode()
-        req = urllib.request.Request("https://wxpusher.zjiecode.com/api/send/message", data=payload, headers={"Content-Type": "application/json"})
+        payload = json.dumps({
+            "appToken": APP_TOKEN,
+            "content": content,
+            "contentType": 1,
+            "uids": [WX_UID]
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            "https://wxpusher.zjiecode.com/api/send/message",
+            data=payload,
+            headers={"Content-Type": "application/json"}
+        )
         with urllib.request.urlopen(req, timeout=30) as r:
-            return json.loads(r.read())
+            result = json.loads(r.read())
+            if not result.get("success", False):
+                raise RuntimeError(f"WxPusher 返回失败: {result}")
+            return result
     raise RuntimeError("未配置 WXPUSHER_SPT，或 WXPUSHER_APP_TOKEN + WXPUSHER_UID")
 
 def main():
@@ -140,7 +150,6 @@ def main():
 
     STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    # Do not fail the whole workflow just because one UP or one push failed.
     if had_error:
         print("本次检查存在部分错误，但已完成其他可用 UP 主的检查。")
 
